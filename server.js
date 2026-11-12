@@ -12,7 +12,9 @@ const crypto = require("crypto");
 const PORT = +process.env.PORT || 3000;
 const SITE_URL = (process.env.SITE_URL || "").replace(/\/+$/, "");
 const DATA_DIR = process.env.DATA_DIR || "";
-const PUB = path.join(__dirname, "public");
+// Works with files in a "public" folder OR loose next to server.js (flat upload)
+const PUB = fs.existsSync(path.join(__dirname, "public", "index.html")) ? path.join(__dirname, "public") : __dirname;
+const STATIC_OK = new Set([".html", ".css", ".png", ".jpg", ".svg", ".ico", ".webmanifest", ".txt", ".xml"]);
 
 /* ---------------- limits ---------------- */
 const MAX_ROOMS = 5000, MAX_PLAYERS = 16, ROOM_TTL = 12 * 3600e3, MAX_BODY = 4096, MAX_SSE_PER_IP = 12;
@@ -231,6 +233,7 @@ function serve(req, res, url) {
     res.writeHead(404, { "Content-Type": "text/plain" }); return res.end("Not found");
   }
   const ext = path.extname(file).toLowerCase();
+  if (!STATIC_OK.has(ext) || path.basename(file).startsWith(".") || /^(README|LICENSE)/i.test(path.basename(file))) { res.writeHead(404, { "Content-Type": "text/plain" }); return res.end("Not found"); }
   let buf = fs.readFileSync(file);
   if (ext === ".webmanifest" || ext === ".svg") buf = Buffer.from(buf.toString().replace(/__SITE_URL__/g, base));
   send(req, res, entry("f:" + file + base, buf, MIME[ext] || "application/octet-stream"), ext === ".html" ? 0 : 86400);
