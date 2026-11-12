@@ -1,0 +1,10 @@
+{
+  "name": "cricket-drafts",
+  "version": "1.0.0",
+  "description": "Cricket Drafts: draft an XI, play a real tournament, race your friends in live rooms.",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" },
+  "engines": { "node": ">=18" },
+  "license": "UNLICENSED",
+  "private": true
+}

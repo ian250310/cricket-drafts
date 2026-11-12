@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: cricket-drafts
+    runtime: node
+    plan: free
+    buildCommand: "echo no build needed"
+    startCommand: node server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: TRUST_PROXY
+        value: "1"
+      # After you attach a custom domain, add: SITE_URL = https://yourdomain.com
