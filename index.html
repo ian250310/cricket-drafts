@@ -334,7 +334,6 @@ tr.hum td{background:rgba(6,182,212,.10)}
     <div class="reel-wrap" style="margin:12px 0"><div class="reel-mark"></div><div id="reel" class="reel"></div></div>
     <div class="row">
       <button id="btnSpin" class="btn-3d btn-cyan">🎲 Spin Country</button>
-      <button id="btnReroll" class="btn-3d btn-secondary" disabled>🎲 Roll Another Country</button>
       <button id="btnSkip" class="btn-3d btn-danger" disabled>Skip Team</button>
     </div>
     <p id="skipLeft" class="sub" style="margin:8px 0 0">1 skip available</p>
@@ -1222,7 +1221,7 @@ function startDraft() {
   reelEl.style.transform = "translateY(0px)";
   reelEl.innerHTML = reelHTML([pick(t), pick(t), pick(t)]);
   const W = G.edition.lg ? "Team" : "Country";
-  $("#btnSpin").textContent = "🎲 Spin " + W; $("#btnReroll").textContent = "🎲 Roll Another " + W;
+  $("#btnSpin").textContent = "🎲 Spin " + W;
   showScreen("screenDraft");
   refreshDraft();
 }
@@ -1233,14 +1232,13 @@ function refreshDraft() {
 function setBtns() {
   const full = xiCount() >= 11, busy = D.spinning;
   $("#btnSpin").disabled = busy || full || !!G.country;
-  $("#btnReroll").disabled = busy || full || !G.country;
   $("#btnSkip").disabled = busy || full || !G.country || G.skipsLeft < 1;
   $("#btnToMatch").style.display = full ? "inline-flex" : "none";
 }
 
 /* Equal-odds reel: target is drawn uniformly, then the strip decelerates onto it over 2.5s */
 async function spin() {
-  if (D.spinning || xiCount() >= 11) return;
+  if (D.spinning || xiCount() >= 11 || G.country) return;   // a rolled team can only be left by picking a player or using the one skip
   const pool = edTeams(G.edition).filter(c => !D.banned.has(c));
   const target = pick(pool), N = 38, items = [];
   for (let i = 0; i < N; i++) items.push(pick(pool));
@@ -1264,14 +1262,12 @@ async function spin() {
   tick(900, .12, .1); toast(`${TEAMS[target][1]} ${TEAMS[target][0]}`);
   refreshDraft();
 }
-function rollAnother() { if (!G.country || D.spinning) return; G.country = null; spin(); }
 function skipTeam() {            // uses the single skip and removes that nation from this draft
   if (!G.country || G.skipsLeft < 1 || D.spinning) return;
   G.skipsLeft--; D.banned.add(G.country); G.country = null; G.selected = null;
   spin();
 }
 $("#btnSpin").onclick = spin;
-$("#btnReroll").onclick = rollAnother;
 $("#btnSkip").onclick = skipTeam;
 
 function renderPool() {
@@ -1681,8 +1677,8 @@ function renderMatchCenter() {
           : `<div class="row"><button id="btnPlay" class="btn-3d btn-gold glow">▶ Start Match</button></div>`}`;
     } else {
       h += `<p class="sub" style="margin:12px 0">${T.spec ? "You're spectating this tournament." : T.elim ? MYNAME + " is out (" + T.exit + "). Watching from the stands." : MYNAME + " has a bye this matchday."}${T.mp ? " The next matchday starts when your friends finish theirs." : ""}</p>
-        <div class="row"><button id="btnSimMD" class="btn-3d btn-cyan">Simulate Matchday</button>
-        ${T.elim ? `<button id="btnSimAll" class="btn-3d btn-secondary">Simulate Rest of Tournament</button>` : ""}</div>`;
+        ${T.mp ? `<p class="sub">No peeking: the next results appear when your friends finish their matches.</p>` : `<div class="row"><button id="btnSimMD" class="btn-3d btn-cyan">Simulate Matchday</button>
+        ${T.elim ? `<button id="btnSimAll" class="btn-3d btn-secondary">Simulate Rest of Tournament</button>` : ""}</div>`}`;
     }
     h += `</div>`;
   }
