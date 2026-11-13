@@ -268,6 +268,12 @@ body:has(#bottomNav.show) .credit{bottom:calc(60px + env(safe-area-inset-bottom)
 #mpName,#mpCode{width:100%;background:#0d1426;border:2px solid var(--line);border-radius:12px;color:var(--text);font:800 18px system-ui;text-align:center;padding:12px;outline:none;margin:6px 0}
 #mpCode{letter-spacing:8px;text-transform:uppercase}
 #mpName:focus,#mpCode:focus{border-color:var(--gold)}
+.od{display:inline-block;width:9px;height:9px;border-radius:50%;background:#475569;flex:none}.od.on{background:#22c55e;box-shadow:0 0 6px #22c55e}
+.rival{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:12px;background:#0d1426;border:1px solid var(--line);margin:6px 0}
+.rival.me{border-color:var(--gold)}.rival b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rival small{color:var(--muted);font-size:12px;text-align:right}
+.btn-3d.mini{min-height:30px;padding:0 10px;font-size:11px;border-radius:8px;box-shadow:inset 0 2px 0 var(--h),0 2px 0 #000}
+tr.hum td{background:rgba(6,182,212,.10)}
 </style>
 </head>
 <body>
@@ -1208,6 +1214,7 @@ const xiCount = () => Object.keys(G.xi).length;
 
 function startDraft() {
   if (!G.edition) return;
+  ME = "ME"; HUM = {}; ERNG = null;
   G.xi = {}; G.selected = null; G.country = null; G.skipsLeft = 1;
   D.banned = new Set(); D.spinning = false; T = null;
   $("#draftTitle").textContent = G.edition.name + " · Draft";
@@ -1314,9 +1321,14 @@ $("#btnToMatch").onclick = () => enterTournament();
 /* ---- Part 4 continues here ---- */
 /* ================= PART 4: TOURNAMENT ================= */
 let T = null;
-const ME = "ME";
-const tName = c => c === ME ? MYNAME : TEAMS[c][0];
-const tFlag = c => c === ME ? "⭐" : TEAMS[c][1];
+let ME = "ME";                            // this player's team code ("@<id>" in multiplayer)
+let HUM = {};                             // multiplayer: team code -> { uid, name, flag, xi, str }
+let ERNG = null;                          // seeded engine RNG (multiplayer tournaments only)
+const ER = () => ERNG ? ERNG() : Math.random();
+const ernd = n => Math.floor(ER() * n);
+const eshuffle = a => { a = a.slice(); for (let i = a.length - 1; i > 0; i--) { const j = ernd(i + 1); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const tName = c => c === ME ? MYNAME : HUM[c] ? HUM[c].name : TEAMS[c][0];
+const tFlag = c => c === ME ? "⭐" : HUM[c] ? HUM[c].flag : TEAMS[c][1];
 const tLbl = c => tFlag(c) + " " + tName(c);
 
 /* ---------- team strength ---------- */
@@ -1330,6 +1342,7 @@ function strengthOf(pl) {
   };
 }
 function teamStr(c) {
+  if (HUM[c]) return HUM[c].str;
   if (c === ME) return strengthOf(Object.values(G.xi));
   const k = T.ed.id + c;
   return _str[k] || (_str[k] = strengthOf(getSquad(T.ed.id, c)));
@@ -1347,7 +1360,7 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 /* log entries: -1 = wicket, else runs scored off the ball */
 function simInnings(fmt, bat, bowl, maxBalls, target, declareAt, keep, maxW) {
   const P = PROF[fmt], sb = teamStr(bat), sw = teamStr(bowl);
-  const x = (sb.bat + (Math.random() - .5) * 6 - sw.bowl) / 15;
+  const x = (sb.bat + (ER() - .5) * 6 - sw.bowl) / 15;
   const f = clamp(1 + .22 * x, .6, 1.45), wf = clamp(1 - .3 * x, .55, 1.7);
   let runs = 0, w = 0, b = 0; const log = [];
   while (b < maxBalls && w < (maxW || 10)) {
@@ -1362,7 +1375,7 @@ function simInnings(fmt, bat, bowl, maxBalls, target, declareAt, keep, maxW) {
     const ff = f * agg, s = Math.sqrt(ff);
     const wts = [P.r[0] / ff, P.r[1] * s, P.r[2] * s, P.r[3], P.r[4] * ff * ff, P.r[5] * ff * ff];
     const pw = P.w * wf * wm, tot = wts.reduce((a, c) => a + c, 0) + pw;
-    let r = Math.random() * tot, out = -2;
+    let r = ER() * tot, out = -2;
     if (r < pw) out = -1;
     else { r -= pw; for (let i = 0; i < 6; i++) { if (r < wts[i]) { out = i; break; } r -= wts[i]; } if (out === -2) out = 1; }
     b++;
@@ -1376,7 +1389,7 @@ function simInnings(fmt, bat, bowl, maxBalls, target, declareAt, keep, maxW) {
 function simMatch(a, b, ko, keep) {
   const fmt = T.ed.fmt;
   if (fmt === "WTC") return simTest(a, b, ko, keep);
-  const mb = T.ed.overs * 6, f = Math.random() < .5 ? [a, b] : [b, a];
+  const mb = T.ed.overs * 6, f = ER() < .5 ? [a, b] : [b, a];
   const i1 = simInnings(fmt, f[0], f[1], mb, null, null, keep);
   const i2 = simInnings(fmt, f[1], f[0], mb, i1.runs + 1, null, keep);
   const res = { fmt, ko, a: f[0], b: f[1], innings: [
@@ -1409,14 +1422,14 @@ function superOver(res, first, second, keep) {
     res.winner = a2.runs > a1.runs ? t2 : t1;
     res.text = `Scores level · ${tName(res.winner)} won the Super Over (${sc})`;
   } else {                                      // still level after three super overs
-    res.winner = Math.random() < .5 ? first : second;
+    res.winner = ER() < .5 ? first : second;
     res.text = `Scores level · ${tName(res.winner)} won on boundary count after ${res.innings.filter(i => i.so).length / 2} super overs`;
   }
   res.superOver = true;
 }
 
 function simTest(a, b, ko, keep) {
-  const first = Math.random() < .5 ? a : b, second = first === a ? b : a, TOT = 2700;
+  const first = ER() < .5 ? a : b, second = first === a ? b : a, TOT = 2700;
   let left = TOT; const inn = [], sc = { [a]: 0, [b]: 0 };
   const run = (t, o, tgt, decl) => {
     if (left <= 0) return null;
@@ -1428,7 +1441,7 @@ function simTest(a, b, ko, keep) {
   run(first, second); run(second, first);
   const lead = sc[first] - sc[second];
   let winner = null, kind = "D", text = "Match drawn";
-  const r3 = run(first, second, null, Math.max(60 + rnd(60), 280 + rnd(120) - lead));
+  const r3 = run(first, second, null, Math.max(60 + ernd(60), 280 + ernd(120) - lead));
   if (r3) {
     const tgt = sc[first] - sc[second] + 1;
     if (tgt <= 0) { winner = second; kind = "W"; text = `${tName(second)} won by an innings and ${sc[second] - sc[first]} runs`; }
@@ -1499,12 +1512,14 @@ function makeLeague(role, name, groups, dbl, qual, lbl) {
 }
 const makeKO = (role, name, pairs) =>
   ({ role, name, type: "ko", groups: {}, rounds: [pairs.map(([a, b]) => mkFx(a, b, "KO"))], qual: 0, lbl: () => name });
-const stageHasMe = st => Object.values(st.groups).some(a => a.includes(ME)) ||
-  st.rounds.some(rd => rd.some(f => f.a === ME || f.b === ME));
+const stageHas = (st, c) => Object.values(st.groups).some(a => a.includes(c)) ||
+  st.rounds.some(rd => rd.some(f => f.a === c || f.b === c));
+const stageHasMe = st => stageHas(st, ME);
 
 function pushStage(st) {
   if (T.stages.length) { T.prevName = T.stages[T.si].name; T.si++; }
   T.stages.push(st); T.ri = 0;
+  if (T.mp) Object.keys(HUM).forEach(h => { if (!T.hx[h] && !stageHas(st, h) && !st.bye && st.byeTeam !== h) T.hx[h] = T.prevName; });
   if (!T.elim && !stageHasMe(st) && !st.bye) { T.elim = true; T.exit = T.prevName; }
 }
 
@@ -1518,18 +1533,21 @@ function iplLeague(teams, grp) {
     const a = teams[i], b = teams[j]; ms.push([a, b]); if (same(a, b) || riv(a, b)) ms.push([b, a]);
   }
   const rounds = [];
-  shuffle(ms).forEach(([a, b]) => {
+  eshuffle(ms).forEach(([a, b]) => {
     let rd = rounds.find(r => !r.some(f => f.a === a || f.b === a || f.a === b || f.b === b));
     if (!rd) rounds.push(rd = []); rd.push(mkFx(a, b, "ALL"));
   });
   return { role: "ipl", name: "League Stage", type: "league", groups: { ALL: teams }, rounds, qual: 4, lbl: () => "IPL Table" };
 }
-function buildTournament(berth) {
+function buildTournament(berth, humans) {
   const ed = G.edition, k = ed.kind;
-  T = { ed, berth, stages: [], si: 0, ri: 0, done: false, elim: false, exit: "", champion: null, last: null, prevName: "" };
-  const rp = a => a.map(c => c === berth ? ME : c);
-  const rg = o => { const r = {}; for (const g in o) r[g] = rp(o[g]); return r; };
-  T.cfg = { grp: ed.grp && { g: rg(ed.grp.g), rival: ed.grp.rival.map(rp) }, groups: ed.groups && rg(ed.groups), r1: ed.r1 && rg(ed.r1), super: ed.super && ed.super.map(rp), teams: ed.teams && (k === "WTC" || k === "IPL" || k === "IPLS" ? [...ed.teams, ME] : rp(ed.teams)) };   // Test Championship: your XI joins as an extra team, nobody is replaced
+  T = { ed, berth, stages: [], si: 0, ri: 0, done: false, elim: false, exit: "", champion: null, last: null, prevName: "", hx: {}, mp: !!humans };
+  const H = humans || null;
+  const rp = a => H ? a : a.map(c => c === berth ? ME : c);
+  const addH = o => { if (!H) return o; const r = {}; for (const g in o) r[g] = o[g].slice();   // friends join the smallest groups, nobody is replaced
+    H.forEach(h => { const gs = Object.keys(r).sort((x, y) => r[x].length - r[y].length); r[gs[0]].push(h); }); return r; };
+  const rg = o => { const r = {}; for (const g in o) r[g] = rp(o[g]); return addH(r); };
+  T.cfg = { grp: ed.grp && { g: rg(ed.grp.g), rival: ed.grp.rival.map(rp) }, groups: ed.groups && rg(ed.groups), r1: ed.r1 && rg(ed.r1), super: ed.super && ed.super.map(rp), teams: ed.teams && (H ? [...ed.teams, ...H] : k === "WTC" || k === "IPL" || k === "IPLS" ? [...ed.teams, ME] : rp(ed.teams)) };   // Test Championship: your XI joins as an extra team, nobody is replaced
   if (k === "GQF") pushStage(makeLeague("group", "Group Stage", T.cfg.groups, false, 4, g => "Group " + g));
   else if (k === "G_S8") pushStage(makeLeague("group", "Group Stage", T.cfg.groups, false, 2, g => "Group " + g));
   else if (k === "R1_S10") pushStage(makeLeague("r1", "First Round", T.cfg.r1, false, 1, g => "Qualifier Group " + g));
@@ -1561,7 +1579,7 @@ function nextStage() {
     case "sf": return makeKO("final", "Final", [[st.rounds[0][0].res.winner, st.rounds[0][1].res.winner]]);
     case "po1": {
       const [q1, el] = st.rounds[0], lose = q1.res.winner === q1.a ? q1.b : q1.a;
-      const n = makeKO("q2", "Qualifier 2", [[lose, el.res.winner]]); n.bye = q1.res.winner === ME; return n;
+      const n = makeKO("q2", "Qualifier 2", [[lose, el.res.winner]]); n.bye = q1.res.winner === ME; n.byeTeam = q1.res.winner; return n;
     }
     case "q2": { const w = T.stages[si - 1].rounds[0][0].res.winner; return makeKO("final", "Final", [[w, st.rounds[0][0].res.winner]]); }
     case "r1": return superStage();
@@ -1579,15 +1597,22 @@ const curStage = () => T.stages[T.si];
 const curRound = () => curStage().rounds[T.ri];
 const userFx = () => curRound().find(f => f.a === ME || f.b === ME);
 
+function mpPre() {                         // multiplayer: the whole matchday is simulated once, in fixture order, from the shared seed
+  const rd = curRound(); if (rd.pre) return;
+  const ko = curStage().type === "ko";
+  rd.forEach(fx => { fx.pre = simMatch(fx.a, fx.b, ko, true); });
+  rd.pre = true;
+}
 function resolveRound(skip) {             // CPU vs CPU matches resolve in the background
   const st = curStage();
+  if (T.mp) mpPre();
   curRound().forEach(fx => {
     if (fx === skip || fx.done) return;
-    fx.res = simMatch(fx.a, fx.b, st.type === "ko", false); fx.done = true;
+    fx.res = T.mp ? fx.pre : simMatch(fx.a, fx.b, st.type === "ko", false); fx.done = true;
   });
 }
 function afterRound() {
-  const st = curStage(); T.ri++;
+  const st = curStage(); T.ri++; if (T.mp) T.step++;
   if (T.ri >= st.rounds.length) {
     const ns = nextStage();
     if (!ns) { T.done = true; T.champion = st.rounds[0][0].res.winner; return; }
@@ -1601,7 +1626,7 @@ function tableHTML(si, g, extra, live) {
   const st = T.stages[si], isT = T.ed.fmt === "WTC", rows = standings(si, g, extra);
   const head = isT ? "<th>#</th><th>Team</th><th>P</th><th>W</th><th>D</th><th>L</th><th>Pts</th><th>PCT</th>"
                    : "<th>#</th><th>Team</th><th>P</th><th>W</th><th>L</th><th>T</th><th>Pts</th><th>NRR</th>";
-  const body = rows.map((r, i) => `<tr class="${r.code === ME ? "me" : ""} ${i < st.qual ? "qual" : ""}">
+  const body = rows.map((r, i) => `<tr class="${r.code === ME ? "me" : HUM[r.code] ? "hum" : ""} ${i < st.qual ? "qual" : ""}">
     <td>${i + 1}</td><td>${live && live.includes(r.code) ? "🔴 " : ""}${tLbl(r.code)}</td><td>${r.p}</td><td>${r.w}</td>
     ${isT ? `<td>${r.d}</td><td>${r.l}</td><td><b>${r.pts}</b></td><td>${r.pct.toFixed(1)}%</td>`
           : `<td>${r.l}</td><td>${r.t}</td><td><b>${r.pts}</b></td><td>${(r.nrr >= 0 ? "+" : "") + r.nrr.toFixed(3)}</td>`}</tr>`).join("");
@@ -1609,9 +1634,9 @@ function tableHTML(si, g, extra, live) {
 }
 const scoreLine = res => res.innings.map(i => `${tFlag(i.team)} ${i.runs}/${i.w}`).join(" · ");
 function fxHTML(fx) {
-  const mine = fx.a === ME || fx.b === ME;
-  return `<div class="card" style="margin:6px 0;${mine ? "border-color:var(--gold)" : ""}">
-    <div><b>${tLbl(fx.a)}</b> vs <b>${tLbl(fx.b)}</b></div>
+  const mine = fx.a === ME || fx.b === ME, duel = HUM[fx.a] && HUM[fx.b];
+  return `<div class="card" style="margin:6px 0;${mine ? "border-color:var(--gold)" : duel ? "border-color:var(--cyan)" : ""}">
+    <div><b>${tLbl(fx.a)}</b> vs <b>${tLbl(fx.b)}</b>${duel ? ' <span class="tag">⚔️ friends</span>' : ""}</div>
     <div class="sub" style="margin:2px 0 0;text-align:left">${fx.done ? scoreLine(fx.res) + " — " + fx.res.text : "Upcoming"}</div></div>`;
 }
 
@@ -1626,6 +1651,7 @@ const needT = el => { if (T) return false; el.innerHTML = `<p class="sub">Choose
 
 function renderMatchCenter() {
   const el = $("#matchCenter");
+  if (!T && mpLive()) return mpWaitRender(el);
   if (!T && (G.edition.kind === "WTC" || G.edition.lg)) { buildTournament(null); renderMatchCenter(); return; }   // no berth to choose in Tests
   if (!T) {
     el.innerHTML = `<div class="mc-head">${logoHTML(G.edition)}<h1 class="title" style="font-size:22px">${G.edition.name}</h1></div>
@@ -1641,7 +1667,7 @@ function renderMatchCenter() {
     h += `<div class="panel" style="text-align:center"><h2>${T.champion === ME ? "🏆 YOU ARE THE CHAMPIONS!" : "🏁 Tournament Complete"}</h2>
       <p>${tLbl(T.champion)} won the ${T.ed.name}</p>
       <p class="sub">${T.champion === ME ? `${MYNAME} conquered the world.` : inFinal ? `${MYNAME} finished as runners-up.` : `${MYNAME} exited at: ` + T.exit}</p>
-      <button id="btnNew" class="btn-3d btn-gold">New Draft</button></div>`;
+      <button id="btnNew" class="btn-3d btn-gold">${T.mp ? "Back to lobby" : "New Draft"}</button></div>`;
   } else {
     const ufx = userFx();
     h += `<div class="panel"><span class="tag">${st.name}</span> <span class="tag">${st.type === "league" ? `Matchday ${T.ri + 1} / ${st.rounds.length}` : "Knockout"}</span>
@@ -1649,15 +1675,18 @@ function renderMatchCenter() {
     if (ufx) {
       const opp = ufx.a === ME ? ufx.b : ufx.a;
       h += `<div class="card" style="margin:12px 0;text-align:center"><div class="sub" style="margin:0">Next fixture</div>
-        <h2>⭐ ${MYNAME} vs ${tLbl(opp)}</h2></div>
-        <div class="row"><button id="btnPlay" class="btn-3d btn-gold glow">▶ Start Match</button></div>`;
+        <h2>⭐ ${MYNAME} vs ${tLbl(opp)}</h2>${HUM[opp] ? `<div class="sub" style="margin:4px 0 0">⚔️ Friend match, bragging rights are on the line</div>` : ""}</div>
+        ${T.mp && !mpBarrier().ok
+          ? `<div class="row"><button class="btn-3d btn-secondary" disabled>⏳ Waiting for ${mpEsc(mpBarrier().wait.join(", "))}</button></div><p class="sub">The matchday starts when everyone has finished the last one.</p>`
+          : `<div class="row"><button id="btnPlay" class="btn-3d btn-gold glow">▶ Start Match</button></div>`}`;
     } else {
-      h += `<p class="sub" style="margin:12px 0">${T.elim ? MYNAME + " is out (" + T.exit + "). Watching from the stands." : MYNAME + " has a bye this matchday."}</p>
+      h += `<p class="sub" style="margin:12px 0">${T.spec ? "You're spectating this tournament." : T.elim ? MYNAME + " is out (" + T.exit + "). Watching from the stands." : MYNAME + " has a bye this matchday."}${T.mp ? " The next matchday starts when your friends finish theirs." : ""}</p>
         <div class="row"><button id="btnSimMD" class="btn-3d btn-cyan">Simulate Matchday</button>
         ${T.elim ? `<button id="btnSimAll" class="btn-3d btn-secondary">Simulate Rest of Tournament</button>` : ""}</div>`;
     }
     h += `</div>`;
   }
+  if (T.mp) h += mpRivalsHTML();
   if (T.last) h += `<div class="panel"><h3>Last result</h3>${fxHTML(T.last)}</div>`;
   if (!T.done && st.type === "league") {
     const g = Object.keys(st.groups).find(k => st.groups[k].includes(ME));
@@ -1669,7 +1698,9 @@ function renderMatchCenter() {
   on("#btnPlay", playMy);
   on("#btnSimMD", () => { resolveRound(null); afterRound(); renderMatchCenter(); });
   on("#btnSimAll", () => { simAll(); renderMatchCenter(); });
-  on("#btnNew", () => { T = null; G.xi = {}; showScreen("screenHome"); renderEditions(); });
+  on("#btnNew", () => { if (T.mp) { mpAfterTournament(); return; } T = null; G.xi = {}; showScreen("screenHome"); renderEditions(); });
+  $$("[data-view]", el).forEach(b => b.onclick = () => { MP.viewTeam = b.dataset.view; showTab("squad"); });
+  if (T.mp) mpTick();
 }
 function renderFixtures() {
   const el = $("#fixtures"); if (needT(el)) return;
@@ -1684,7 +1715,9 @@ function renderTables() {
       : `<div class="panel"><h3>${st.name}</h3>${st.rounds[0].map(fxHTML).join("")}</div>`).join("");
 }
 function renderSquad() {
-  const el = $("#squadView"), s = strengthOf(Object.values(G.xi));
+  const el = $("#squadView");
+  if (T && T.mp && Object.keys(HUM).length) return mpSquadRender(el);
+  const s = strengthOf(Object.values(G.xi));
   el.innerHTML = `<h1 class="title" style="font-size:22px">${MYNAME}</h1>
     <p class="sub">Batting ${s.bat.toFixed(1)} · Bowling ${s.bowl.toFixed(1)}</p>
     <div class="panel">${SLOTS.map(sl => { const p = G.xi[sl.id]; return p ? `<div class="card player" style="margin:6px 0">
@@ -1699,7 +1732,7 @@ const setBadge = (t, c = "") => { const b = $("#mBadge"); b.textContent = t; b.c
 
 function playMy() {
   const st = curStage(), fx = userFx(); if (!fx || fx.done) return;
-  const res = simMatch(fx.a, fx.b, st.type === "ko", true);
+  let res; if (T.mp) { mpPre(); res = fx.pre; } else res = simMatch(fx.a, fx.b, st.type === "ko", true);
   RP = { fx, res, inn: 0, ball: 0, runs: 0, w: 0, fin: false, timer: null, raf: null };
   $("#mLogo").innerHTML = logoHTML(T.ed);
   $("#matchModal").classList.add("show");
@@ -1721,6 +1754,7 @@ function teamLogoSrc(c) {
 }
 function teamTile(c) {
   if (c === ME) return `<div class="tile me">⭐</div>`;
+  if (HUM[c]) return `<div class="tile"><span class="fe">${HUM[c].flag}</span></div>`;
   const src = teamLogoSrc(c);
   return `<div class="tile">${src ? `<img src="${src}" alt="${TEAMS[c][0]}">` : `<span class="fe">${TEAMS[c][1]}</span>`}</div>`;
 }
@@ -1905,12 +1939,17 @@ function makeServerDb(secret) {
   const open = code => {
     let s = streams[code]; if (s) return s;
     s = streams[code] = { n: 0, room: undefined, players: {}, rj: null, pj: null, docCbs: new Set(), colCbs: new Set(), es: null };
-    const es = s.es = new EventSource("/api/stream?code=" + code);
-    es.addEventListener("state", ev => {
-      let d; try { d = JSON.parse(ev.data); } catch (e) { return; }
-      const rj = JSON.stringify(d.room), pj = JSON.stringify(d.players || {});
-      if (rj !== s.rj) { s.rj = rj; s.room = d.room; s.docCbs.forEach(cb => cb(mkSnap(code, d.room))); }
-      if (pj !== s.pj) { s.pj = pj; s.players = d.players || {}; s.colCbs.forEach(cb => cb(mkCol(s.players))); }
+    const es = s.es = new EventSource("/api/stream?code=" + code + "&u=" + encodeURIComponent(MP.uid || ""));
+    const parse = ev => { try { return JSON.parse(ev.data); } catch (e) { return undefined; } };
+    es.addEventListener("room", ev => {
+      const d = parse(ev); if (d === undefined) return;
+      const rj = JSON.stringify(d); if (rj === s.rj) return;
+      s.rj = rj; s.room = d; s.docCbs.forEach(cb => cb(mkSnap(code, d)));
+    });
+    es.addEventListener("players", ev => {
+      const d = parse(ev); if (d === undefined) return;
+      const pj = JSON.stringify(d); if (pj === s.pj) return;
+      s.pj = pj; s.players = d || {}; s.colCbs.forEach(cb => cb(mkCol(s.players)));
     });
     return s;
   };
@@ -1988,6 +2027,7 @@ function mpRender() {
                               : `<span class="sub" style="margin:0">${host ? "Pick the tournament for everyone" : "Waiting for the host to pick a tournament…"}</span>`}</div>
     ${host && !live ? `<div class="row"><button id="mpPick" class="btn-3d btn-cyan">${ed ? "Change tournament" : "Pick tournament"}</button></div>
       <div class="row"><button id="mpGo" class="btn-3d btn-gold" ${ed ? "" : "disabled"}>▶ Start draft for everyone</button></div>` : ""}
+    ${host && m.status === "draft" ? `<div class="row"><button id="mpBegin2" class="btn-3d btn-gold glow">🏆 Start tournament (${mpReady()} ready)</button></div><p class="sub" style="margin:0">Everyone's XI joins the real teams. Nobody is replaced.</p>` : ""}
     ${host && live ? `<div class="row"><button id="mpReset" class="btn-3d btn-cyan">New tournament (back to lobby)</button></div>` : ""}
     ${!host && live ? `<div class="row"><button id="mpPlay" class="btn-3d btn-gold">▶ Back to my game</button></div>` : ""}
     <div class="mplist" id="mpList"></div>
@@ -1997,6 +2037,7 @@ function mpRender() {
   if ($("#mpPick")) $("#mpPick").onclick = () => mpPick();
   if ($("#mpGo")) $("#mpGo").onclick = () => mpStart();
   if ($("#mpReset")) $("#mpReset").onclick = () => mpReopen();
+  if ($("#mpBegin2")) $("#mpBegin2").onclick = () => mpBegin();
   if ($("#mpPlay")) $("#mpPlay").onclick = () => mpResume();
   $("#mpLeave").onclick = () => mpLeave();
   mpRenderList();
@@ -2006,14 +2047,17 @@ function mpRenderList(target) {
   const el = target || $("#mpList"); if (!el) return;
   const rows = Object.entries(MP.players).sort((a, b) => mpRank(b[1]) - mpRank(a[1]) || (b[1].avg || 0) - (a[1].avg || 0) || (a[1].t || 0) - (b[1].t || 0));
   el.innerHTML = rows.map(([id, p], i) => `<div class="mprow ${id === MP.uid ? "me" : ""}"><span class="rk">${i + 1}</span>
-      <b>${MP.meta && MP.meta.host === id ? "👑 " : ""}${mpEsc(p.name || "Player")}${id === MP.uid ? " (you)" : ""}</b>
-      <small>${mpEsc(p.detail || "")}${p.avg ? " · XI " + p.avg : ""}</small></div>`).join("") || `<div class="sub">No players yet</div>`;
+      <i class="od ${p.on ? "on" : ""}" title="${p.on ? "online" : "offline"}"></i><b>${MP.meta && MP.meta.host === id ? "👑 " : ""}${mpEsc(p.name || "Player")}${id === MP.uid ? " (you)" : ""}</b>
+      <small>${mpEsc(p.detail || "")}${p.avg ? " · XI " + p.avg : ""}${T && T.mp && p.tr === T.round && p.step === T.step && p.h && p.h !== mpHash() ? " ⚠ out of sync" : ""}</small></div>`).join("") || `<div class="sub">No players yet</div>`;
 }
 function mpRenderAll() {
   if ($("#screenMP").classList.contains("active")) mpRender();
   const fab = $("#mpFab"), onTab = !$("#screenMP").classList.contains("active") && !$("#screenHome").classList.contains("active");
   fab.style.display = MP.inRoom && onTab ? "block" : "none"; fab.textContent = "👥 " + (MP.code || "");
   if ($("#mpPanel").style.display === "block") mpRenderPanel();
+  if (!$("#matchModal").classList.contains("show") && $("#tab-match").classList.contains("active")) {
+    if (T && T.mp) renderMatchCenter(); else if (!T && mpLive()) renderMatchCenter();
+  } else if (T && T.mp) mpTick();
 }
 function mpRenderPanel() {
   $("#mpPanelBody").innerHTML = `<h2 style="margin:0 0 4px">Room ${mpEsc(MP.code || "")}</h2>
@@ -2046,14 +2090,15 @@ async function mpJoin(codeIn, nameIn) {
   } catch (e) { mpMsg(e && e.code === "room-full" ? "That room is full" : "Could not join (" + ((e && e.code) || "error") + ")"); }
 }
 async function mpEnter(code, name) {
-  MP.code = code; MP.name = name; MP.inRoom = true; MP.lastSent = ""; MP.startedRound = null; MP.meta = null; MP.players = {};
+  MP.code = code; MP.name = name; MP.inRoom = true; MP.lastSent = ""; MP.startedRound = null; MP.tourRound = null; MP.meta = null; MP.players = {};
   try { localStorage.setItem("caMpName", name); } catch (e) {}
   mpSaveRoom({ code, name });
   MP.unsubs.push(MP.db.doc(mpRoom()).onSnapshot(snap => {
     if (!snap.exists) { if (MP.inRoom) { toast("The host closed the room"); mpLeave(true); } return; }
     const prev = MP.meta; MP.meta = snap.data();
     if (MP.meta.status === "draft" && MP.startedRound !== MP.meta.round) mpStartDraft(MP.meta);
-    if (prev && prev.status !== "lobby" && MP.meta.status === "lobby") { toast("Host is picking a new tournament"); T = null; showScreen("screenMP"); }
+    if (MP.meta.status === "tournament" && MP.tourRound !== MP.meta.round) mpBeginTournament(MP.meta);
+    if (prev && prev.status !== "lobby" && MP.meta.status === "lobby") { toast("Host is picking a new tournament"); T = null; ME = "ME"; HUM = {}; ERNG = null; MP.tourRound = null; $("#matchModal").classList.remove("show"); RP = null; showScreen("screenMP"); }
     mpRenderAll();
   }, e => mpMsg("Room connection lost (" + (e && e.code) + ")")));
   MP.unsubs.push(MP.db.collection(mpRoom() + "/players").onSnapshot(snap => {
@@ -2066,7 +2111,7 @@ async function mpLeave(closed) {
   const code = MP.code, host = mpIsHost();
   MP.unsubs.forEach(u => { try { u(); } catch (e) {} }); MP.unsubs = [];
   try { if (!closed && MP.db && code) { await MP.db.doc(`rooms/${code}/players/${MP.uid}`).delete(); if (host) await MP.db.doc("rooms/" + code).delete(); } } catch (e) {}
-  MP.inRoom = false; MP.code = null; MP.meta = null; MP.players = {}; MP.startedRound = null; mpSaveRoom(null);
+  MP.inRoom = false; MP.code = null; MP.meta = null; MP.players = {}; MP.startedRound = null; MP.tourRound = null; T = null; ME = "ME"; HUM = {}; ERNG = null; mpSaveRoom(null);
   $("#mpFab").style.display = "none"; $("#mpPanel").style.display = "none";
   showScreen("screenMP"); mpRender();
 }
@@ -2119,7 +2164,9 @@ function mpSnap() {
     } else if (T.elim) { phase = "out"; detail = "Out · " + T.exit; score = 10 * ei + 5; }
     else { phase = "playing"; detail = st ? st.name + (st.type === "league" ? ` · MD ${T.ri + 1}` : "") : "Playing"; score = 10 * T.si + 5 + T.ri / 100; }
   }
-  return { name: MP.name, phase, detail, avg, score };
+  if (T && T.spec) { phase = "spec"; detail = "Spectating"; score = -1; }
+  const tm = !!(T && T.mp);
+  return { name: MP.name, phase, detail, avg, score, step: tm ? T.step : 0, h: tm ? mpHash() : "", tr: tm ? T.round : 0, xi: xi.length === 11 ? encXI() : "" };
 }
 async function mpWrite(s) {
   const j = JSON.stringify(s); if (j === MP.lastSent) return; MP.lastSent = j;
@@ -2129,11 +2176,134 @@ async function mpWrite(s) {
 function mpReport(now) {
   if (!MP.inRoom || !MP.db) return;
   clearTimeout(MP.tm);
-  MP.tm = setTimeout(() => { if (MP.inRoom && MP.meta && MP.meta.status === "draft") mpWrite(mpSnap()); }, now ? 50 : 700);
+  MP.tm = setTimeout(() => { if (MP.inRoom && MP.meta && (MP.meta.status === "draft" || MP.meta.status === "tournament")) mpWrite(mpSnap()); }, now ? 50 : 700);
 }
 refreshDraft = (o => function () { const r = o.apply(this, arguments); mpReport(); return r; })(refreshDraft);
 buildTournament = (o => function () { const r = o.apply(this, arguments); mpReport(); return r; })(buildTournament);
 afterRound = (o => function () { const r = o.apply(this, arguments); mpReport(); return r; })(afterRound);
+
+
+/* ================= MULTIPLAYER TOURNAMENT =================
+   Everyone's drafted XI joins ONE shared tournament next to every real team (nobody is replaced).
+   The server freezes the XIs and a random seed; every device then simulates the identical tournament
+   from that seed, so results always agree and nothing depends on one person's computer staying on. */
+const MP_ICONS = ["🔥", "⚡", "🐯", "🦅", "🐉", "🦁", "🐺", "🦈", "🚀", "💎", "🌪️", "🪐", "🎯", "🍀", "🦂", "🐍"];
+const mulberry32 = a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const mpLive = () => !!(MP.inRoom && MP.meta && MP.meta.status && MP.meta.status !== "lobby");
+const mpReady = () => Object.values(MP.players).filter(p => p.phase === "ready").length;
+const encXI = () => Object.values(G.xi).map(p => [p.name, p.role, p.rating, p.country, "-", String(p.edition || "").replace(/\D/g, "").slice(-4)]
+  .map(v => String(v).replace(/[|;]/g, " ")).join("|")).join(";");
+const decXI = s => String(s || "").split(";").map(x => { const [name, role, rating, code, , yr] = x.split("|"), t = TEAMS[code]; return { name, role, rating: +rating, country: code, flag: t ? t[1] : "", countryName: t ? t[0] : code, edition: yr || "" }; });
+
+function buildTournamentMP(meta) {
+  const ed = getEd(meta.edition); G.edition = ed;
+  HUM = {}; const used = {};
+  meta.field.forEach((f, i) => {
+    let nm = cleanName(f.n) || "Player"; used[nm] = (used[nm] || 0) + 1; if (used[nm] > 1) nm += " " + used[nm];
+    const xi = decXI(f.x);
+    HUM["@" + f.u] = { uid: f.u, name: nm, flag: MP_ICONS[i % MP_ICONS.length], xi, str: strengthOf(xi) };
+  });
+  ME = "@" + MP.uid;
+  if (HUM[ME]) MYNAME = HUM[ME].name;
+  applyName();
+  ERNG = mulberry32(meta.seed >>> 0);
+  buildTournament(null, Object.keys(HUM));
+  T.round = meta.round; T.step = 0; T.spec = !HUM[ME];
+}
+function mpBeginTournament(meta) {
+  const ed = getEd(meta.edition); if (!ed || !meta.field) return;
+  MP.tourRound = meta.round; MP.startedRound = meta.round; clearTimeout(MP.tm);
+  try { closePlace(false); } catch (e) {}
+  $("#matchModal").classList.remove("show"); RP = null;
+  MYNAME = cleanName(MP.name) || "Your XI";
+  buildTournamentMP(meta);
+  toast(T.spec ? "Tournament started. You're spectating." : "Tournament started!", 2200);
+  showTab("match"); mpReport(true);
+}
+async function mpBegin() {
+  if (!mpIsHost()) return;
+  try { await MP.db.doc(mpRoom()).update({ status: "tournament" }); }
+  catch (e) { toast(e && e.code === 409 ? "Nobody has finished their XI yet" : "Could not start the tournament", 2200); }
+}
+function mpAfterTournament() { T = null; ME = "ME"; HUM = {}; ERNG = null; showScreen("screenMP"); mpRender(); }
+
+/* ---- fingerprint of finished results, to prove every device agrees ---- */
+function mpHash() {
+  let h = 2166136261; const add = s => { for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } };
+  T.stages.forEach((st, si) => st.rounds.forEach((rd, ri) => { if (!(si < T.si || ri < T.ri)) return;
+    rd.forEach(fx => { if (fx.done && fx.res) add(fx.a + fx.b + fx.res.winner + fx.res.innings.map(i => i.runs + "/" + i.w).join(",") + ";"); }); }));
+  return (h >>> 0).toString(36);
+}
+
+/* ---- pacing: a matchday starts when every online friend has finished the previous one ---- */
+const mpStepOf = o => (o.p.tr === T.round ? (o.p.step || 0) : 0);
+function mpOthers() { return Object.keys(HUM).filter(h => h !== ME).map(h => ({ code: h, p: MP.players[HUM[h].uid] })).filter(o => o.p); }
+function mpBarrier() {
+  const wait = []; let maxStep = T.step;
+  mpOthers().forEach(o => { if (!o.p.on) return; const s = mpStepOf(o); maxStep = Math.max(maxStep, s); if (s < T.step) wait.push(HUM[o.code].name); });
+  return { ok: !wait.length, wait, maxStep };
+}
+function mpTick() {                                   // auto-advance when there is nothing for me to play, or I fell behind
+  if (!T || !T.mp || T.done || RP || MP.ticking) return;
+  const b = mpBarrier(), behind = b.maxStep >= T.step + 2, mine = userFx();
+  let go = behind;
+  if (!go && !mine) go = mpOthers().every(o => !o.p.on || !curRound().some(f => f.a === o.code || f.b === o.code) || mpStepOf(o) > T.step);
+  if (!go) return;
+  MP.ticking = true;
+  setTimeout(() => {
+    MP.ticking = false; if (!T || !T.mp || T.done || RP) return;
+    resolveRound(null); afterRound();
+    if ($("#tab-match").classList.contains("active")) renderMatchCenter(); else mpTick();
+  }, behind ? 40 : 700);
+}
+
+/* ---- screens ---- */
+function mpWaitRender(el) {
+  const m = MP.meta || {}, host = mpIsHost(), rows = Object.keys(MP.players).length, ready = mpReady(), ed = m.edition ? getEd(m.edition) : null;
+  el.innerHTML = `<div class="mc-head">${ed ? logoHTML(ed) : ""}<h1 class="title" style="font-size:22px">${ed ? mpEsc(ed.name) : ""}</h1></div>
+    <div class="panel" style="text-align:center"><h2>🏏 Waiting room</h2>
+      <p class="sub">Every friend's XI joins the real teams in one shared tournament. Nobody gets replaced.</p>
+      <div class="mplist" id="mpWList"></div>
+      ${host ? `<div class="row"><button id="mpBegin" class="btn-3d btn-gold glow" ${ready ? "" : "disabled"}>🏆 Start tournament (${ready} ready)</button></div>
+        <p class="sub">Friends still drafting when you start will watch as spectators.</p>`
+        : `<p class="sub">Waiting for the host to start the tournament… (${ready} of ${rows} ready)</p>`}
+    </div>`;
+  mpRenderList($("#mpWList", el));
+  const b = $("#mpBegin", el); if (b) b.onclick = () => mpBegin();
+}
+function humStatus(h) {
+  if (T.done) {
+    const fin = T.stages[T.stages.length - 1].rounds[0][0];
+    if (T.champion === h) return "🏆 Champions";
+    if (fin.a === h || fin.b === h) return "🥈 Runners-up";
+  }
+  if (T.hx[h]) return "Out · " + T.hx[h];
+  const st = curStage();
+  if (st.type === "league") {
+    const g = Object.keys(st.groups).find(k => st.groups[k].includes(h));
+    if (g) { const rows = standings(T.si, g), i = rows.findIndex(r => r.code === h); return `${st.lbl(g)} · #${i + 1} · ${rows[i].w}W ${rows[i].l}L`; }
+  }
+  return st.name;
+}
+function mpRivalsHTML() {
+  const codes = Object.keys(HUM); if (!codes.length) return "";
+  const rows = codes.map(h => { const p = MP.players[HUM[h].uid];
+    return `<div class="rival ${h === ME ? "me" : ""}"><i class="od ${p && p.on ? "on" : ""}"></i><b>${HUM[h].flag} ${mpEsc(HUM[h].name)}${h === ME ? " (you)" : ""}</b>
+      <small>${mpEsc(humStatus(h))}</small><button class="btn-3d btn-secondary mini" data-view="${h}">XI</button></div>`; }).join("");
+  const duels = T.done ? [] : curRound().filter(f => HUM[f.a] && HUM[f.b] && f.a !== ME && f.b !== ME);
+  return `<div class="panel"><h3>👥 Friends in this tournament</h3>${rows}
+    ${duels.length ? `<div class="sub" style="text-align:left;margin:10px 0 2px">Friend matches this matchday</div>${duels.map(fxHTML).join("")}` : ""}</div>`;
+}
+function mpSquadRender(el) {
+  const codes = Object.keys(HUM), sel = HUM[MP.viewTeam] ? MP.viewTeam : (HUM[ME] ? ME : codes[0]), h = HUM[sel];
+  el.innerHTML = `<div class="row chips">${codes.map(c => `<button class="chip ${c === sel ? "on" : ""}" data-t="${c}">${HUM[c].flag} ${mpEsc(HUM[c].name)}</button>`).join("")}</div>
+    <h1 class="title" style="font-size:22px">${mpEsc(h.name)}</h1>
+    <p class="sub">Batting ${h.str.bat.toFixed(1)} · Bowling ${h.str.bowl.toFixed(1)}</p>
+    <div class="panel">${h.xi.map(p => `<div class="card player" style="margin:6px 0">
+      <span><b>${mpEsc(p.name)}</b><br><span class="sub" style="margin:0">${p.flag} ${mpEsc(p.countryName)} ${mpEsc(p.edition)}</span></span>
+      <span><span class="role ${p.role}">${p.role}</span> <b>${p.rating}</b></span></div>`).join("")}</div>`;
+  $$("[data-t]", el).forEach(b => b.onclick = () => { MP.viewTeam = b.dataset.t; mpSquadRender(el); });
+}
 
 $("#btnMP").onclick = () => { showScreen("screenMP"); mpRender(); };
 mpInit();
