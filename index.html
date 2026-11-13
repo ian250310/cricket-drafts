@@ -1665,7 +1665,7 @@ function renderMatchCenter() {
       <p class="sub">${T.champion === ME ? `${MYNAME} conquered the world.` : inFinal ? `${MYNAME} finished as runners-up.` : `${MYNAME} exited at: ` + T.exit}</p>
       <button id="btnNew" class="btn-3d btn-gold">${T.mp ? "Back to lobby" : "New Draft"}</button></div>`;
   } else {
-    const ufx = userFx();
+    const ufx = T.held ? null : userFx();
     h += `<div class="panel"><span class="tag">${st.name}</span> <span class="tag">${st.type === "league" ? `Matchday ${T.ri + 1} / ${st.rounds.length}` : "Knockout"}</span>
       <span class="tag">${T.ed.fmt === "WTC" ? "Test match" : T.ed.overs + " overs"}</span>`;
     if (ufx) {
@@ -1676,7 +1676,7 @@ function renderMatchCenter() {
           ? `<div class="row"><button class="btn-3d btn-secondary" disabled>⏳ Waiting for ${mpEsc(mpBarrier().wait.join(", "))}</button></div><p class="sub">The matchday starts when everyone has finished the last one.</p>`
           : `<div class="row"><button id="btnPlay" class="btn-3d btn-gold glow">▶ Start Match</button></div>`}`;
     } else {
-      h += `<p class="sub" style="margin:12px 0">${T.spec ? "You're spectating this tournament." : T.elim ? MYNAME + " is out (" + T.exit + "). Watching from the stands." : MYNAME + " has a bye this matchday."}${T.mp ? " The next matchday starts when your friends finish theirs." : ""}</p>
+      h += `<p class="sub" style="margin:12px 0">${T.held ? "Your knockout match is done. The rest of this round is revealed when your friends finish theirs." : T.spec ? "You're spectating this tournament." : T.elim ? MYNAME + " is out (" + T.exit + "). Watching from the stands." : MYNAME + " has a bye this matchday."}${T.mp ? " The next matchday starts when your friends finish theirs." : ""}</p>
         ${T.mp ? `<p class="sub">No peeking: the next results appear when your friends finish their matches.</p>` : `<div class="row"><button id="btnSimMD" class="btn-3d btn-cyan">Simulate Matchday</button>
         ${T.elim ? `<button id="btnSimAll" class="btn-3d btn-secondary">Simulate Rest of Tournament</button>` : ""}</div>`}`;
     }
@@ -1833,7 +1833,7 @@ function finishMatch() {
   if (RP.fin) return;
   RP.fin = true; clearTimeout(RP.timer); cancelAnimationFrame(RP.raf);
   const fx = RP.fx; fx.res = RP.res; fx.done = true; T.last = fx;
-  resolveRound(fx);                         // other fixtures of this matchday resolve now
+  if (!(T.mp && curStage().type === "ko")) resolveRound(fx);   // knockout (multiplayer): other results stay hidden until every friend in the round has played
   renderLive(); renderModalTable();
   setBadge(RP.res.text, "four");
   $("#btnSkipAnim").style.display = "none"; $("#btnContinue").style.display = "inline-flex";
@@ -1848,6 +1848,7 @@ function skipAnim() {
 $("#btnSkipAnim").onclick = skipAnim;
 $("#btnContinue").onclick = () => {
   $("#matchModal").classList.remove("show"); RP = null;
+  if (T.mp && curStage().type === "ko") { T.held = true; mpReport(true); showTab("match"); renderMatchCenter(); return; }
   afterRound(); showTab("match");
 };
 
@@ -2164,7 +2165,7 @@ function mpSnap() {
   }
   if (T && T.spec) { phase = "spec"; detail = "Spectating"; score = -1; }
   const tm = !!(T && T.mp);
-  return { name: MP.name, phase, detail, avg, score, step: tm ? T.step : 0, h: tm ? mpHash() : "", tr: tm ? T.round : 0, xi: xi.length === 11 ? encXI() : "" };
+  return { name: MP.name, phase, detail, avg, score, step: tm ? T.step + (T.held ? 1 : 0) : 0, h: tm ? mpHash() : "", tr: tm ? T.round : 0, xi: xi.length === 11 ? encXI() : "" };
 }
 async function mpWrite(s) {
   const j = JSON.stringify(s); if (j === MP.lastSent) return; MP.lastSent = j;
@@ -2236,23 +2237,30 @@ function mpHash() {
 /* ---- pacing: a matchday starts when every online friend has finished the previous one ---- */
 const mpStepOf = o => (o.p.tr === T.round ? (o.p.step || 0) : 0);
 function mpOthers() { return Object.keys(HUM).filter(h => h !== ME).map(h => ({ code: h, p: MP.players[HUM[h].uid] })).filter(o => o.p); }
+const mpIsKO = () => { const st = T && T.stages[T.si]; return !!st && st.type === "ko"; };
 function mpBarrier() {
   const wait = []; let maxStep = T.step;
+  if (!mpIsKO()) return { ok: true, wait, maxStep };   // league stage: everyone plays at their own pace, no waiting
   mpOthers().forEach(o => { if (!o.p.on) return; const s = mpStepOf(o); maxStep = Math.max(maxStep, s); if (s < T.step) wait.push(HUM[o.code].name); });
   return { ok: !wait.length, wait, maxStep };
 }
-function mpTick() {                                   // auto-advance when there is nothing for me to play, or I fell behind
+function mpTick() {                                   // auto-advance when there is nothing for me to play
   if (!T || !T.mp || T.done || RP || MP.ticking) return;
-  const b = mpBarrier(), behind = b.maxStep >= T.step + 2, mine = userFx();
-  let go = behind;
-  if (!go && !mine) go = mpOthers().every(o => !o.p.on || !curRound().some(f => f.a === o.code || f.b === o.code) || mpStepOf(o) > T.step);
+  const ko = mpIsKO(), mine = userFx();
+  let go = false;
+  if (T.held) {                                       // I finished my knockout match: reveal the round only once every friend in it has finished too
+    go = mpOthers().every(o => !o.p.on || !curRound().some(f => f.a === o.code || f.b === o.code) || mpStepOf(o) > T.step);
+  } else if (!mine) {
+    if (!ko) go = true;                               // league bye / spectator: just move on, matchdays are not synchronised
+    else go = mpBarrier().ok && mpOthers().every(o => !o.p.on || !curRound().some(f => f.a === o.code || f.b === o.code) || mpStepOf(o) > T.step);
+  }
   if (!go) return;
   MP.ticking = true;
   setTimeout(() => {
     MP.ticking = false; if (!T || !T.mp || T.done || RP) return;
-    resolveRound(null); afterRound();
+    resolveRound(null); T.held = false; afterRound();
     if ($("#tab-match").classList.contains("active")) renderMatchCenter(); else mpTick();
-  }, behind ? 40 : 700);
+  }, 700);
 }
 
 /* ---- screens ---- */
